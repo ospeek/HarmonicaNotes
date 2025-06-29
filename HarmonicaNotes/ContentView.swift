@@ -34,68 +34,131 @@ struct ContentView: View {
         1567.982, // G6
         2093.005  // C7
     ]
+    @State private var currentIndex: Int? = nil
+    @State private var log: [String] = []
+
     var body: some View {
         ZStack {
-            Color.black
-                .ignoresSafeArea()
+            Color.black.ignoresSafeArea()
             GeometryReader { geometry in
-                let buttonSize = (geometry.size.width - 88) / 10 // 88 = 8*9 spacing + 16*2 padding
-                VStack(spacing: 16) {
-                    // Top row: -1 to -10 buttons
-                    HStack(spacing: 8) {
-                        ForEach(0..<10, id: \.self) { idx in
-                            NoteButton(label: "-\(idx+1)", freq: drawFrequencies[idx], size: buttonSize)
+                let spacingH: CGFloat = 8
+                let spacingV: CGFloat = 16
+                let paddingV: CGFloat = 16
+                let hPadding: CGFloat = 16
+                let width = geometry.size.width
+                let buttonSize = (width - hPadding * 2 - spacingH * 9) / 10
+                let gridHeight = paddingV * 2 + buttonSize * 2 + spacingV
+
+                VStack(alignment: .center, spacing: 0) {
+                    // Move buttons down a bit
+                    Spacer().frame(height: 20)
+
+                    // Button grid with swipe gesture
+                    ZStack(alignment: .topLeading) {
+                        VStack(spacing: spacingV) {
+                            HStack(spacing: spacingH) {
+                                ForEach(0..<10, id: \.self) { idx in
+                                    NoteButton(label: "-\(idx+1)", size: buttonSize, isActive: currentIndex == idx)
+                                }
+                            }
+                            HStack(spacing: spacingH) {
+                                ForEach(0..<10, id: \.self) { idx in
+                                    NoteButton(label: "+\(idx+1)", size: buttonSize, isActive: currentIndex == idx + 10)
+                                }
+                            }
                         }
+                        .padding(.horizontal, hPadding)
+                        .padding(.vertical, paddingV)
+                        .frame(width: width, height: gridHeight, alignment: .top)
+
+                        // Touch overlay
+                        Rectangle()
+                            .fill(Color.clear)
+                            .contentShape(Rectangle())
+                            .frame(width: width, height: gridHeight)
+                            .gesture(DragGesture(minimumDistance: 0)
+                                .onChanged { value in
+                                    let x = value.location.x - hPadding
+                                    let y = value.location.y
+                                    let cellWidth = buttonSize + spacingH
+                                    var newIndex: Int? = nil
+                                    let col = Int(x / cellWidth)
+                                    if col >= 0 && col < 10 {
+                                        let withinX = x - CGFloat(col) * cellWidth
+                                        if withinX >= 0 && withinX <= buttonSize {
+                                            let topMinY = paddingV
+                                            let topMaxY = topMinY + buttonSize
+                                            let bottomMinY = topMaxY + spacingV
+                                            let bottomMaxY = bottomMinY + buttonSize
+                                            if y >= topMinY && y <= topMaxY {
+                                                newIndex = col
+                                            } else if y >= bottomMinY && y <= bottomMaxY {
+                                                newIndex = col + 10
+                                            }
+                                        }
+                                    }
+                                    if newIndex != currentIndex {
+                                        if currentIndex != nil {
+                                            SynthEngine.shared.noteOff()
+                                        }
+                                        if let idx = newIndex {
+                                            let freq = idx < 10 ? drawFrequencies[idx] : blowFrequencies[idx - 10]
+                                            SynthEngine.shared.noteOn(frequency: freq)
+                                            let labelText = idx < 10 ? "-\(idx+1)" : "+\((idx-10)+1)"
+                                            log.append(labelText)
+                                        }
+                                        currentIndex = newIndex
+                                    }
+                                }
+                                .onEnded { _ in
+                                    if currentIndex != nil {
+                                        SynthEngine.shared.noteOff()
+                                        currentIndex = nil
+                                    }
+                                }
+                            )
                     }
-                    .frame(maxWidth: .infinity)
-                    // Bottom row: +1 to +10 buttons
-                    HStack(spacing: 8) {
-                        ForEach(0..<10, id: \.self) { idx in
-                            NoteButton(label: "+\(idx+1)", freq: blowFrequencies[idx], size: buttonSize)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
+                    .frame(width: width, height: gridHeight)
+
+                    // Log below buttons
+                    Text(log.joined(separator: " "))
+                        .foregroundColor(.white)
+                        .font(.system(size: 14))
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, hPadding)
+                        .padding(.vertical, 8)
+
+                    Spacer()
                 }
-                .frame(maxHeight: .infinity)
-                .padding(.vertical)
+                .frame(width: width, height: geometry.size.height, alignment: .top)
             }
         }
     }
 }
-// MARK: - NoteButton (press-and-hold)
-/// A button that triggers noteOn/noteOff for given frequency on press-and-hold.
+
+// MARK: - NoteButton
+/// A button showing a note label and active state.
 struct NoteButton: View {
     let label: String
-    let freq: Float
     let size: CGFloat
-    @State private var isPressing = false
+    let isActive: Bool
 
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 4)
-                .fill(isPressing ? Color.white.opacity(0.3) : Color.clear)
+                .fill(isActive ? Color.white.opacity(0.3) : Color.clear)
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white, lineWidth: 1))
                 .frame(width: size, height: size)
-                .scaleEffect(isPressing ? 0.95 : 1.0)
-                .animation(.easeInOut(duration: 0.1), value: isPressing)
+                .scaleEffect(isActive ? 0.95 : 1.0)
+                .animation(.easeInOut(duration: 0.1), value: isActive)
             Text(label)
                 .font(.system(size: 12))
                 .foregroundColor(.white)
         }
-        .gesture(DragGesture(minimumDistance: 0)
-                    .onChanged { _ in
-                        if !isPressing {
-                            isPressing = true
-                            SynthEngine.shared.noteOn(frequency: freq)
-                        }
-                    }
-                    .onEnded { _ in
-                        isPressing = false
-                        SynthEngine.shared.noteOff()
-                    }
-        )
     }
 }
+
 // Custom button style for square buttons with pressed visual feedback
 struct SquareButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
