@@ -6,8 +6,10 @@
 //
 
 import SwiftUI
+import AVFoundation
 
 struct ContentView: View {
+    @State private var isPressingPlus1 = false
     var body: some View {
         ZStack {
             Color.black
@@ -33,15 +35,43 @@ struct ContentView: View {
                     // Bottom row: +1 to +10 buttons
                     HStack(spacing: 8) {
                         ForEach(1...10, id: \.self) { i in
-                            Button(action: {
-                                // handle positive button press if needed
-                            }) {
-                                Text("+\(i)")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.white)
-                                    .frame(width: buttonSize, height: buttonSize)
+                            if i == 1 {
+                                // +1 button with note on/off handling
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(isPressingPlus1 ? Color.white.opacity(0.3) : Color.clear)
+                                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white, lineWidth: 1))
+                                        .frame(width: buttonSize, height: buttonSize)
+                                        .scaleEffect(isPressingPlus1 ? 0.95 : 1.0)
+                                        .animation(.easeInOut(duration: 0.1), value: isPressingPlus1)
+                                    Text("+1")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.white)
+                                }
+                                .gesture(
+                                    DragGesture(minimumDistance: 0)
+                                        .onChanged { _ in
+                                            if !isPressingPlus1 {
+                                                isPressingPlus1 = true
+                                                SynthEngine.shared.noteOn()
+                                            }
+                                        }
+                                        .onEnded { _ in
+                                            isPressingPlus1 = false
+                                            SynthEngine.shared.noteOff()
+                                        }
+                                )
+                            } else {
+                                Button(action: {
+                                    // handle positive button press if needed
+                                }) {
+                                    Text("+\(i)")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.white)
+                                        .frame(width: buttonSize, height: buttonSize)
+                                }
+                                .buttonStyle(SquareButtonStyle())
                             }
-                            .buttonStyle(SquareButtonStyle())
                         }
                     }
                     .frame(maxWidth: .infinity)
