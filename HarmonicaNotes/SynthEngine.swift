@@ -26,7 +26,7 @@ class SynthEngine {
         return pow(2.0, detuneCents / 1200.0)
     }
 
-    private let baseFreq: Float = 261.6256 // C4
+    private var baseFreq: Float = 261.6256 // current note frequency
     private var sampleRate: Double = 44100
 
     private var lpPrev: Float = 0
@@ -117,6 +117,13 @@ class SynthEngine {
         }
     }
 
+    /// Trigger note-on with specified frequency
+    func noteOn(frequency: Float) {
+        baseFreq = frequency
+        envelopeState = .attack
+        envelopeTime = 0
+    }
+    /// Trigger note-on of current frequency (legacy C4)
     func noteOn() {
         envelopeState = .attack
         envelopeTime = 0
