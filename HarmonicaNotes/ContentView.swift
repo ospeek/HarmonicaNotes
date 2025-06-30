@@ -34,10 +34,18 @@ struct ContentView: View {
         1567.982, // G6
         2093.005  // C7
     ]
+    // Log entry with timestamp for playback
+    private struct LogEntry {
+        var label: String
+        let timestamp: Date
+        var duration: TimeInterval? = nil
+    }
     @State private var currentIndex: Int? = nil
-    @State private var log: [String] = []
+    @State private var log: [LogEntry] = []
     @State private var isEditing: Bool = false
     @State private var selectedLogIndex: Int? = nil
+    @State private var playTask: Task<Void, Never>? = nil
+    @State private var isPlaying: Bool = false
 
     var body: some View {
         ZStack {
@@ -70,14 +78,15 @@ struct ContentView: View {
                     ForEach(0..<10, id: \.self) { idx in
                         NoteButton(label: "-\(idx+1)", size: buttonSize, isActive: currentIndex == idx)
                             .onTapGesture {
-                                if isEditing, let sel = selectedLogIndex {
+                                if isEditing, let sel = selectedLogIndex, sel < log.count {
                                     let newLabel = "-\(idx+1)"
-                                    log[sel] = newLabel
+                                    let oldEntry = log[sel]
+                                    log[sel] = LogEntry(label: newLabel, timestamp: oldEntry.timestamp, duration: oldEntry.duration)
                                     SynthEngine.shared.noteOn(frequency: drawFrequencies[idx])
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                         SynthEngine.shared.noteOff()
                                     }
-                                    isEditing = false
+                                    // remain in edit mode; clear selection
                                     selectedLogIndex = nil
                                 }
                             }
@@ -87,14 +96,15 @@ struct ContentView: View {
                     ForEach(0..<10, id: \.self) { idx in
                         NoteButton(label: "+\(idx+1)", size: buttonSize, isActive: currentIndex == idx + 10)
                             .onTapGesture {
-                                if isEditing, let sel = selectedLogIndex {
+                                if isEditing, let sel = selectedLogIndex, sel < log.count {
                                     let newLabel = "+\(idx+1)"
-                                    log[sel] = newLabel
+                                    let oldEntry = log[sel]
+                                    log[sel] = LogEntry(label: newLabel, timestamp: oldEntry.timestamp, duration: oldEntry.duration)
                                     SynthEngine.shared.noteOn(frequency: blowFrequencies[idx])
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                         SynthEngine.shared.noteOff()
                                     }
-                                    isEditing = false
+                                    // remain in edit mode; clear selection
                                     selectedLogIndex = nil
                                 }
                             }
@@ -135,22 +145,32 @@ struct ContentView: View {
                                 }
                                 if newIndex != currentIndex {
                                     if currentIndex != nil {
+                                        // close previous note duration
+                                        let now = Date()
+                                        if let last = log.indices.last {
+                                            log[last].duration = now.timeIntervalSince(log[last].timestamp)
+                                        }
                                         SynthEngine.shared.noteOff()
                                     }
                                     if let idx = newIndex {
-                                        let freq = idx < 10 ? drawFrequencies[idx] : blowFrequencies[idx - 10]
-                                        SynthEngine.shared.noteOn(frequency: freq)
-                                        let labelText = idx < 10 ? "-\(idx+1)" : "+\((idx-10)+1)"
-                                        log.append(labelText)
-                                    }
+                                    let freq = idx < 10 ? drawFrequencies[idx] : blowFrequencies[idx - 10]
+                                    SynthEngine.shared.noteOn(frequency: freq)
+                                    let labelText = idx < 10 ? "-\(idx+1)" : "+\((idx-10)+1)"
+                                    log.append(LogEntry(label: labelText, timestamp: Date()))
+                                }
                                     currentIndex = newIndex
                                 }
                             }
-                            .onEnded { _ in
-                                if currentIndex != nil {
-                                    SynthEngine.shared.noteOff()
-                                    currentIndex = nil
+                        .onEnded { _ in
+                            if currentIndex != nil {
+                                // close last note duration
+                                let now = Date()
+                                if let last = log.indices.last {
+                                    log[last].duration = now.timeIntervalSince(log[last].timestamp)
                                 }
+                                SynthEngine.shared.noteOff()
+                                currentIndex = nil
+                            }
                             }
                     )
             }
@@ -164,8 +184,8 @@ struct ContentView: View {
         HStack(alignment: .top) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 4) {
-                    ForEach(Array(log.enumerated()), id: \.offset) { idx, entry in
-                        Text(entry)
+                        ForEach(Array(log.enumerated()), id: \.offset) { idx, entry in
+                            Text(entry.label)
                             .font(.system(size: 16))
                             .foregroundColor(isEditing ? (selectedLogIndex == idx ? .yellow : .white) : .white)
                             .padding(4)
@@ -212,10 +232,61 @@ struct ContentView: View {
                         .padding(.horizontal, 8)
                 }
                 .buttonStyle(SquareButtonStyle())
+                // Play/Stop button
+                Button {
+                    if isPlaying {
+                        playTask?.cancel()
+                        isPlaying = false
+                    } else {
+                        playTask?.cancel()
+                        isPlaying = true
+                        playTask = Task {
+                            await playSequence()
+                            isPlaying = false
+                        }
+                    }
+                } label: {
+                    Text(isPlaying ? "Stop" : "Play")
+                        .font(.system(size: 16))
+                        .foregroundColor(.white)
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 8)
+                }
+                .buttonStyle(SquareButtonStyle())
             }
         }
         .padding(.horizontal, hPadding)
         .padding(.vertical, 8)
+    }
+
+    // Map label to frequency
+    private func frequency(for label: String) -> Float {
+        guard let sign = label.first else { return 0 }
+        let numString = String(label.dropFirst())
+        guard let num = Int(numString), num >= 1, num <= 10 else { return 0 }
+        return sign == "-" ? drawFrequencies[num - 1] : blowFrequencies[num - 1]
+    }
+
+    // Playback the recorded log with original timing
+    private func playSequence() async {
+        guard !log.isEmpty else { return }
+        // Sequential playback using recorded durations
+        var prevTime = log[0].timestamp
+        for entry in log {
+            let start = entry.timestamp
+            let delay = start.timeIntervalSince(prevTime)
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            }
+            let freq = frequency(for: entry.label)
+            SynthEngine.shared.noteOn(frequency: freq)
+            let dur = entry.duration ?? 0.2
+            if dur > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(dur * 1_000_000_000))
+            }
+            SynthEngine.shared.noteOff()
+            prevTime = start.addingTimeInterval(dur)
+        }
     }
 }
 
