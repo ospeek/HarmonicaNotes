@@ -36,104 +36,186 @@ struct ContentView: View {
     ]
     @State private var currentIndex: Int? = nil
     @State private var log: [String] = []
+    @State private var isEditing: Bool = false
+    @State private var selectedLogIndex: Int? = nil
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
             GeometryReader { geometry in
-                let spacingH: CGFloat = 8
-                let spacingV: CGFloat = 16
-                let paddingV: CGFloat = 16
-                let hPadding: CGFloat = 16
-                let width = geometry.size.width
-                let buttonSize = (width - hPadding * 2 - spacingH * 9) / 10
-                let gridHeight = paddingV * 2 + buttonSize * 2 + spacingV
-
                 VStack(alignment: .center, spacing: 0) {
-                    // Move buttons down a bit
                     Spacer().frame(height: 20)
-
-                    // Button grid with swipe gesture
-                    ZStack(alignment: .topLeading) {
-                        VStack(spacing: spacingV) {
-                            HStack(spacing: spacingH) {
-                                ForEach(0..<10, id: \.self) { idx in
-                                    NoteButton(label: "-\(idx+1)", size: buttonSize, isActive: currentIndex == idx)
-                                }
-                            }
-                            HStack(spacing: spacingH) {
-                                ForEach(0..<10, id: \.self) { idx in
-                                    NoteButton(label: "+\(idx+1)", size: buttonSize, isActive: currentIndex == idx + 10)
-                                }
-                            }
-                        }
-                        .padding(.horizontal, hPadding)
-                        .padding(.vertical, paddingV)
-                        .frame(width: width, height: gridHeight, alignment: .top)
-
-                        // Touch overlay
-                        Rectangle()
-                            .fill(Color.clear)
-                            .contentShape(Rectangle())
-                            .frame(width: width, height: gridHeight)
-                            .gesture(DragGesture(minimumDistance: 0)
-                                .onChanged { value in
-                                    let x = value.location.x - hPadding
-                                    let y = value.location.y
-                                    let cellWidth = buttonSize + spacingH
-                                    var newIndex: Int? = nil
-                                    let col = Int(x / cellWidth)
-                                    if col >= 0 && col < 10 {
-                                        let withinX = x - CGFloat(col) * cellWidth
-                                        if withinX >= 0 && withinX <= buttonSize {
-                                            let topMinY = paddingV
-                                            let topMaxY = topMinY + buttonSize
-                                            let bottomMinY = topMaxY + spacingV
-                                            let bottomMaxY = bottomMinY + buttonSize
-                                            if y >= topMinY && y <= topMaxY {
-                                                newIndex = col
-                                            } else if y >= bottomMinY && y <= bottomMaxY {
-                                                newIndex = col + 10
-                                            }
-                                        }
-                                    }
-                                    if newIndex != currentIndex {
-                                        if currentIndex != nil {
-                                            SynthEngine.shared.noteOff()
-                                        }
-                                        if let idx = newIndex {
-                                            let freq = idx < 10 ? drawFrequencies[idx] : blowFrequencies[idx - 10]
-                                            SynthEngine.shared.noteOn(frequency: freq)
-                                            let labelText = idx < 10 ? "-\(idx+1)" : "+\((idx-10)+1)"
-                                            log.append(labelText)
-                                        }
-                                        currentIndex = newIndex
-                                    }
-                                }
-                                .onEnded { _ in
-                                    if currentIndex != nil {
-                                        SynthEngine.shared.noteOff()
-                                        currentIndex = nil
-                                    }
-                                }
-                            )
-                    }
-                    .frame(width: width, height: gridHeight)
-
-                    // Log below buttons
-                    Text(log.joined(separator: " "))
-                        .foregroundColor(.white)
-                        .font(.system(size: 14))
-                        .lineLimit(2)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, hPadding)
-                        .padding(.vertical, 8)
-
+                    gridSection(in: geometry)
+                    logSection()
                     Spacer()
                 }
-                .frame(width: width, height: geometry.size.height, alignment: .top)
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
             }
         }
+    }
+
+    @ViewBuilder
+    private func gridSection(in geometry: GeometryProxy) -> some View {
+        let spacingH: CGFloat = 8
+        let spacingV: CGFloat = 16
+        let paddingV: CGFloat = 16
+        let hPadding: CGFloat = 16
+        let width = geometry.size.width
+        let buttonSize = (width - hPadding * 2 - spacingH * 9) / 10
+        let gridHeight = paddingV * 2 + buttonSize * 2 + spacingV
+
+        ZStack(alignment: .topLeading) {
+            VStack(spacing: spacingV) {
+                HStack(spacing: spacingH) {
+                    ForEach(0..<10, id: \.self) { idx in
+                        NoteButton(label: "-\(idx+1)", size: buttonSize, isActive: currentIndex == idx)
+                            .onTapGesture {
+                                if isEditing, let sel = selectedLogIndex {
+                                    let newLabel = "-\(idx+1)"
+                                    log[sel] = newLabel
+                                    SynthEngine.shared.noteOn(frequency: drawFrequencies[idx])
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                        SynthEngine.shared.noteOff()
+                                    }
+                                    isEditing = false
+                                    selectedLogIndex = nil
+                                }
+                            }
+                    }
+                }
+                HStack(spacing: spacingH) {
+                    ForEach(0..<10, id: \.self) { idx in
+                        NoteButton(label: "+\(idx+1)", size: buttonSize, isActive: currentIndex == idx + 10)
+                            .onTapGesture {
+                                if isEditing, let sel = selectedLogIndex {
+                                    let newLabel = "+\(idx+1)"
+                                    log[sel] = newLabel
+                                    SynthEngine.shared.noteOn(frequency: blowFrequencies[idx])
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                        SynthEngine.shared.noteOff()
+                                    }
+                                    isEditing = false
+                                    selectedLogIndex = nil
+                                }
+                            }
+                    }
+                }
+            }
+            .padding(.horizontal, hPadding)
+            .padding(.vertical, paddingV)
+            .frame(width: width, height: gridHeight, alignment: .top)
+
+            if !isEditing {
+                Rectangle()
+                    .fill(Color.clear)
+                    .contentShape(Rectangle())
+                    .frame(width: width, height: gridHeight)
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                // Drag logic
+                                let x = value.location.x - hPadding
+                                let y = value.location.y
+                                let cellWidth = buttonSize + spacingH
+                                var newIndex: Int? = nil
+                                let col = Int(x / cellWidth)
+                                if col >= 0 && col < 10 {
+                                    let withinX = x - CGFloat(col) * cellWidth
+                                    if withinX >= 0 && withinX <= buttonSize {
+                                        let topMinY = paddingV
+                                        let topMaxY = topMinY + buttonSize
+                                        let bottomMinY = topMaxY + spacingV
+                                        let bottomMaxY = bottomMinY + buttonSize
+                                        if y >= topMinY && y <= topMaxY {
+                                            newIndex = col
+                                        } else if y >= bottomMinY && y <= bottomMaxY {
+                                            newIndex = col + 10
+                                        }
+                                    }
+                                }
+                                if newIndex != currentIndex {
+                                    if currentIndex != nil {
+                                        SynthEngine.shared.noteOff()
+                                    }
+                                    if let idx = newIndex {
+                                        let freq = idx < 10 ? drawFrequencies[idx] : blowFrequencies[idx - 10]
+                                        SynthEngine.shared.noteOn(frequency: freq)
+                                        let labelText = idx < 10 ? "-\(idx+1)" : "+\((idx-10)+1)"
+                                        log.append(labelText)
+                                    }
+                                    currentIndex = newIndex
+                                }
+                            }
+                            .onEnded { _ in
+                                if currentIndex != nil {
+                                    SynthEngine.shared.noteOff()
+                                    currentIndex = nil
+                                }
+                            }
+                    )
+            }
+        }
+        .frame(width: width, height: gridHeight)
+    }
+
+    @ViewBuilder
+    private func logSection() -> some View {
+        let hPadding: CGFloat = 16
+        HStack(alignment: .top) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(Array(log.enumerated()), id: \.offset) { idx, entry in
+                        Text(entry)
+                            .font(.system(size: 16))
+                            .foregroundColor(isEditing ? (selectedLogIndex == idx ? .yellow : .white) : .white)
+                            .padding(4)
+                            .background(isEditing && selectedLogIndex == idx ? Color.white.opacity(0.3) : Color.clear)
+                            .cornerRadius(4)
+                            .onTapGesture {
+                                if isEditing {
+                                    selectedLogIndex = idx
+                                }
+                            }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: 48)
+            VStack(spacing: 8) {
+                // Edit toggle
+                Button {
+                    isEditing.toggle()
+                    if !isEditing {
+                        selectedLogIndex = nil
+                    }
+                } label: {
+                    Text("Edit")
+                        .font(.system(size: 16, weight: isEditing ? .bold : .regular))
+                        .foregroundColor(isEditing ? .yellow : .white)
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 8)
+                }
+                .buttonStyle(SquareButtonStyle())
+                // Clear or Delete (when a log entry is selected)
+                Button {
+                    if let sel = selectedLogIndex, sel < log.count {
+                        log.remove(at: sel)
+                    } else {
+                        log.removeAll()
+                    }
+                    isEditing = false
+                    selectedLogIndex = nil
+                } label: {
+                    Text(selectedLogIndex != nil ? "Delete" : "Clear")
+                        .font(.system(size: 16))
+                        .foregroundColor(.white)
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 8)
+                }
+                .buttonStyle(SquareButtonStyle())
+            }
+        }
+        .padding(.horizontal, hPadding)
+        .padding(.vertical, 8)
     }
 }
 
@@ -171,7 +253,9 @@ struct SquareButtonStyle: ButtonStyle {
     }
 }
 
-// Preview
-#Preview {
-    ContentView()
+// MARK: - Preview
+struct ContentView_Previews: PreviewProvider {
+    static var previews: some View {
+        ContentView()
+    }
 }
