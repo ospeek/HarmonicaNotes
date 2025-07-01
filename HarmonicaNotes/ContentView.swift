@@ -46,6 +46,11 @@ struct ContentView: View {
     @State private var selectedLogIndex: Int? = nil
     @State private var playTask: Task<Void, Never>? = nil
     @State private var isPlaying: Bool = false
+    // Recording state and virtual clock to ignore paused/edit/playback time
+    @State private var isRecording: Bool = false
+    @State private var pauseStart: Date? = nil
+    @State private var pausedTime: TimeInterval = 0
+    @State private var wasPaused: Bool = false
 
     var body: some View {
         ZStack {
@@ -60,6 +65,9 @@ struct ContentView: View {
                 .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
             }
         }
+        // Monitor pause state when editing or playback start/stop
+        .onChange(of: isPlaying) { _ in updatePauseState() }
+        .onChange(of: isEditing) { _ in updatePauseState() }
     }
 
     @ViewBuilder
@@ -146,32 +154,39 @@ struct ContentView: View {
                                 if newIndex != currentIndex {
                                     if currentIndex != nil {
                                         // close previous note duration
-                                        let now = Date()
-                                        if let last = log.indices.last {
-                                            log[last].duration = now.timeIntervalSince(log[last].timestamp)
+                                        let nowAdjusted = Date().addingTimeInterval(-pausedTime)
+                                        if isRecording, let last = log.indices.last {
+                                            log[last].duration = nowAdjusted.timeIntervalSince(log[last].timestamp)
                                         }
                                         SynthEngine.shared.noteOff()
                                     }
                                     if let idx = newIndex {
-                                    let freq = idx < 10 ? drawFrequencies[idx] : blowFrequencies[idx - 10]
-                                    SynthEngine.shared.noteOn(frequency: freq)
-                                    let labelText = idx < 10 ? "-\(idx+1)" : "+\((idx-10)+1)"
-                                    log.append(LogEntry(label: labelText, timestamp: Date()))
-                                }
+                                        // start or resume recording
+                                        if !isRecording {
+                                            isRecording = true
+                                        }
+                                        let freq = idx < 10 ? drawFrequencies[idx] : blowFrequencies[idx - 10]
+                                        SynthEngine.shared.noteOn(frequency: freq)
+                                        if isRecording {
+                                            let nowAdjusted = Date().addingTimeInterval(-pausedTime)
+                                            let labelText = idx < 10 ? "-\(idx+1)" : "+\((idx-10)+1)"
+                                            log.append(LogEntry(label: labelText, timestamp: nowAdjusted))
+                                        }
+                                    }
                                     currentIndex = newIndex
                                 }
                             }
                         .onEnded { _ in
                             if currentIndex != nil {
                                 // close last note duration
-                                let now = Date()
-                                if let last = log.indices.last {
-                                    log[last].duration = now.timeIntervalSince(log[last].timestamp)
+                                let nowAdjusted = Date().addingTimeInterval(-pausedTime)
+                                if isRecording, let last = log.indices.last {
+                                    log[last].duration = nowAdjusted.timeIntervalSince(log[last].timestamp)
                                 }
                                 SynthEngine.shared.noteOff()
                                 currentIndex = nil
                             }
-                            }
+                        }
                     )
             }
         }
@@ -195,7 +210,10 @@ struct ContentView: View {
                                 if isEditing {
                                     selectedLogIndex = idx
                                 } else {
-                                    // Play sequence starting from this log entry
+                                    // Stop recording and play sequence starting from this log entry
+                                    if isRecording {
+                                        isRecording = false
+                                    }
                                     playTask?.cancel()
                                     isPlaying = true
                                     let startIndex = idx
@@ -229,6 +247,13 @@ struct ContentView: View {
                     } else {
                         log.removeAll()
                     }
+                    // Reset recording when all notes cleared
+                    if log.isEmpty {
+                        pausedTime = 0
+                        pauseStart = nil
+                        wasPaused = false
+                        isRecording = false
+                    }
                     isEditing = false
                     selectedLogIndex = nil
                 } label: {
@@ -237,25 +262,44 @@ struct ContentView: View {
                         .foregroundColor(.white)
                 }
                 .buttonStyle(LiquidGlassButtonStyle())
-                // Play/Stop button
-                Button {
-                    if isPlaying {
-                        playTask?.cancel()
-                        isPlaying = false
-                    } else {
-                        playTask?.cancel()
-                        isPlaying = true
-                        playTask = Task {
-                            await playSequence()
-                            isPlaying = false
-                        }
+                // Record (when empty) or Play/Stop button
+                if log.isEmpty {
+                    Button {
+                        // Start new recording session
+                        pausedTime = 0
+                        pauseStart = nil
+                        wasPaused = false
+                        isRecording = true
+                    } label: {
+                        Image(systemName: isRecording ? "stop.fill" : "record.circle")
+                            .font(.system(size: 16))
+                            .foregroundColor(isRecording ? .red : .white)
                     }
-                } label: {
-                    Image(systemName: isPlaying ? "stop.fill" : "play.fill")
-                        .font(.system(size: 16))
-                        .foregroundColor(.white)
+                    .buttonStyle(LiquidGlassButtonStyle())
+                } else {
+                    Button {
+                        if isPlaying {
+                            playTask?.cancel()
+                            isPlaying = false
+                        } else {
+                            // Stop recording when playing sequence
+                            if isRecording {
+                                isRecording = false
+                            }
+                            playTask?.cancel()
+                            isPlaying = true
+                            playTask = Task {
+                                await playSequence()
+                                isPlaying = false
+                            }
+                        }
+                    } label: {
+                        Image(systemName: isPlaying ? "stop.fill" : "play.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(.white)
+                    }
+                    .buttonStyle(LiquidGlassButtonStyle())
                 }
-                .buttonStyle(LiquidGlassButtonStyle())
             }
         }
         .padding(.horizontal, hPadding)
@@ -268,6 +312,19 @@ struct ContentView: View {
         let numString = String(label.dropFirst())
         guard let num = Int(numString), num >= 1, num <= 10 else { return 0 }
         return sign == "-" ? drawFrequencies[num - 1] : blowFrequencies[num - 1]
+    }
+    // Virtual clock: track total paused time during editing or playback
+    private func updatePauseState() {
+        let paused = isPlaying || isEditing
+        if paused && !wasPaused {
+            pauseStart = Date()
+        } else if !paused && wasPaused {
+            if let ps = pauseStart {
+                pausedTime += Date().timeIntervalSince(ps)
+                pauseStart = nil
+            }
+        }
+        wasPaused = paused
     }
 
     // Playback the recorded log with original timing
@@ -294,24 +351,32 @@ struct ContentView: View {
 }
 
 // MARK: - NoteButton
-/// A button showing a note label and active state.
+/// A note button with liquid glass style, active highlight, and row tint.
 struct NoteButton: View {
     let label: String
     let size: CGFloat
     let isActive: Bool
 
+    private var rowTint: Color {
+        label.hasPrefix("-") ? Color.red.opacity(0.1) : Color.blue.opacity(0.1)
+    }
+
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 4)
-                .fill(isActive ? Color.white.opacity(0.3) : Color.clear)
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white, lineWidth: 1))
-                .frame(width: size, height: size)
-                .scaleEffect(isActive ? 0.95 : 1.0)
-                .animation(.easeInOut(duration: 0.1), value: isActive)
-            Text(label)
-                .font(.system(size: 12))
-                .foregroundColor(.white)
-        }
+        Text(label)
+            .font(.system(size: 12))
+            .foregroundColor(.white)
+            .frame(width: size, height: size)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(rowTint)
+            )
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
+            .overlay(
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(Color.white.opacity(isActive ? 1 : 0.7), lineWidth: 1)
+            )
+            .scaleEffect(isActive ? 0.95 : 1.0)
+            .animation(.easeInOut(duration: 0.1), value: isActive)
     }
 }
 
