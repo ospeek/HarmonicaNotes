@@ -217,13 +217,11 @@ struct ContentView: View {
                         selectedLogIndex = nil
                     }
                 } label: {
-                    Text("Edit")
-                        .font(.system(size: 16, weight: isEditing ? .bold : .regular))
+                    Image(systemName: isEditing ? "pencil.circle.fill" : "pencil")
+                        .font(.system(size: 16))
                         .foregroundColor(isEditing ? .yellow : .white)
-                        .padding(.vertical, 4)
-                        .padding(.horizontal, 8)
                 }
-                .buttonStyle(SquareButtonStyle())
+                .buttonStyle(LiquidGlassButtonStyle())
                 // Clear or Delete (when a log entry is selected)
                 Button {
                     if let sel = selectedLogIndex, sel < log.count {
@@ -234,13 +232,11 @@ struct ContentView: View {
                     isEditing = false
                     selectedLogIndex = nil
                 } label: {
-                    Text(selectedLogIndex != nil ? "Delete" : "Clear")
+                    Image(systemName: selectedLogIndex != nil ? "trash.fill" : "xmark.circle")
                         .font(.system(size: 16))
                         .foregroundColor(.white)
-                        .padding(.vertical, 4)
-                        .padding(.horizontal, 8)
                 }
-                .buttonStyle(SquareButtonStyle())
+                .buttonStyle(LiquidGlassButtonStyle())
                 // Play/Stop button
                 Button {
                     if isPlaying {
@@ -255,13 +251,11 @@ struct ContentView: View {
                         }
                     }
                 } label: {
-                    Text(isPlaying ? "Stop" : "Play")
+                    Image(systemName: isPlaying ? "stop.fill" : "play.fill")
                         .font(.system(size: 16))
                         .foregroundColor(.white)
-                        .padding(.vertical, 4)
-                        .padding(.horizontal, 8)
                 }
-                .buttonStyle(SquareButtonStyle())
+                .buttonStyle(LiquidGlassButtonStyle())
             }
         }
         .padding(.horizontal, hPadding)
@@ -321,13 +315,14 @@ struct NoteButton: View {
     }
 }
 
-// Custom button style for square buttons with pressed visual feedback
-struct SquareButtonStyle: ButtonStyle {
+// Custom button style for liquid glass buttons with glass effect
+struct LiquidGlassButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .background(configuration.isPressed ? Color.white.opacity(0.3) : Color.clear)
-            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white, lineWidth: 1))
-            .cornerRadius(4)
+            .padding(8)
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.7), lineWidth: 1))
             .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
             .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
     }
