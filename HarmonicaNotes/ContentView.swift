@@ -194,6 +194,15 @@ struct ContentView: View {
                             .onTapGesture {
                                 if isEditing {
                                     selectedLogIndex = idx
+                                } else {
+                                    // Play sequence starting from this log entry
+                                    playTask?.cancel()
+                                    isPlaying = true
+                                    let startIndex = idx
+                                    playTask = Task {
+                                        await playSequence(from: startIndex)
+                                        isPlaying = false
+                                    }
                                 }
                             }
                     }
@@ -268,11 +277,11 @@ struct ContentView: View {
     }
 
     // Playback the recorded log with original timing
-    private func playSequence() async {
-        guard !log.isEmpty else { return }
-        // Sequential playback using recorded durations
-        var prevTime = log[0].timestamp
-        for entry in log {
+    private func playSequence(from startIndex: Int = 0) async {
+        guard startIndex < log.count else { return }
+        // Sequential playback using recorded durations, starting at startIndex
+        var prevTime = log[startIndex].timestamp
+        for entry in log[startIndex...] {
             let start = entry.timestamp
             let delay = start.timeIntervalSince(prevTime)
             if delay > 0 {
