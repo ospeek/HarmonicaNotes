@@ -1,5 +1,6 @@
 import SwiftUI
 
+
 /// Settings screen matching main theme, with configurable options.
 struct SettingsView: View {
     /// Binding to control presentation state.
@@ -25,9 +26,28 @@ struct SettingsView: View {
                     .font(.title)
                     .fontWeight(.bold)
                     .foregroundColor(.white)
-                Stepper(value: $baseMidi, in: 48...72, step: 1) {
+                HStack {
                     Text("Key: \(midiToName(baseMidi))")
                         .foregroundColor(.white)
+                    Spacer()
+                    HStack(spacing: 0) {
+                        Button(action: { if baseMidi > 40 { baseMidi -= 1 } }) {
+                            Image(systemName: "minus")
+                                .foregroundColor(.black)
+                                .frame(width: 40, height: 40)
+                                .background(Color.white)
+                        }
+                        .disabled(baseMidi == 40)
+
+                        Button(action: { if baseMidi < 70 { baseMidi += 1 } }) {
+                            Image(systemName: "plus")
+                                .foregroundColor(.black)
+                                .frame(width: 40, height: 40)
+                                .background(Color.white)
+                        }
+                        .disabled(baseMidi == 70)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
                 }
                 .padding(8)
 
