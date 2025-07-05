@@ -9,34 +9,20 @@ import SwiftUI
 import AVFoundation
 
 struct ContentView: View {
-    // Frequency mapping per hole: draw (−) and blow (+)
-    let drawFrequencies: [Float] = [
-        293.6648, // D4
-        391.9954, // G4
-        493.8833, // B4
-        587.3295, // D5
-        698.4565, // F5
-        880.0000, // A5
-        987.7666, // B5
-        1174.659, // D6
-        1396.912, // F6
-        1760.000  // A6
-    ]
-    let blowFrequencies: [Float] = [
-        261.6256, // C4
-        329.6276, // E4
-        391.9954, // G4
-        523.2511, // C5
-        659.2551, // E5
-        783.9909, // G5
-        1046.502, // C6
-        1318.510, // E6
-        1567.982, // G6
-        2093.005  // C7
-    ]
-    // Note names for display when Show Notes setting is enabled
-    let drawNoteNames = ["D4", "G4", "B4", "D5", "F5", "A5", "B5", "D6", "F6", "A6"]
-    let blowNoteNames = ["C4", "E4", "G4", "C5", "E5", "G5", "C6", "E6", "G6", "C7"]
+    // Semitone offsets per hole relative to base key: draw (−) and blow (+)
+    let drawOffsets = [2, 7, 11, 14, 17, 21, 23, 26, 29, 33]
+    let blowOffsets = [0, 4, 7, 12, 16, 19, 24, 28, 31, 36]
+
+    // Base MIDI note (middle C=60). Controls tuning key.
+    @State private var baseMidi: Int = 60
+
+    // Computed frequencies per hole based on baseMidi
+    private var drawFrequencies: [Float] { drawOffsets.map { midiToFrequency(baseMidi + $0) } }
+    private var blowFrequencies: [Float] { blowOffsets.map { midiToFrequency(baseMidi + $0) } }
+
+    // Computed note names per hole based on baseMidi
+    private var drawNoteNames: [String] { drawOffsets.map { midiToName(baseMidi + $0) } }
+    private var blowNoteNames: [String] { blowOffsets.map { midiToName(baseMidi + $0) } }
     // Log entry with timestamp for playback
     private struct LogEntry {
         var label: String
@@ -55,7 +41,7 @@ struct ContentView: View {
     @State private var pausedTime: TimeInterval = 0
     @State private var wasPaused: Bool = false
     @State private var showSettings: Bool = false
-    @State private var showNotes: Bool = false
+    @State private var showNotes:    Bool = false
 
     var body: some View {
         ZStack {
@@ -90,7 +76,9 @@ struct ContentView: View {
         .onChange(of: isPlaying) { _ in updatePauseState() }
         .onChange(of: isEditing) { _ in updatePauseState() }
 .sheet(isPresented: $showSettings) {
-    SettingsView(isPresented: $showSettings, showNotes: $showNotes)
+    SettingsView(isPresented: $showSettings,
+                 showNotes:    $showNotes,
+                 baseMidi:     $baseMidi)
 }
     }
 
@@ -108,7 +96,10 @@ struct ContentView: View {
             VStack(spacing: spacingV) {
                 HStack(spacing: spacingH) {
                     ForEach(0..<10, id: \.self) { idx in
-                        NoteButton(label: showNotes ? drawNoteNames[idx] : "-\(idx+1)", size: buttonSize, isActive: currentIndex == idx)
+                        NoteButton(label: showNotes ? drawNoteNames[idx] : "-\(idx+1)",
+                                   size: buttonSize,
+                                   isActive: currentIndex == idx,
+                                   isDraw: true)
                             .onTapGesture {
                                 if isEditing, let sel = selectedLogIndex, sel < log.count {
                                     let newLabel = "-\(idx+1)"
@@ -126,7 +117,10 @@ struct ContentView: View {
                 }
                 HStack(spacing: spacingH) {
                     ForEach(0..<10, id: \.self) { idx in
-                        NoteButton(label: showNotes ? blowNoteNames[idx] : "+\(idx+1)", size: buttonSize, isActive: currentIndex == idx + 10)
+                        NoteButton(label: showNotes ? blowNoteNames[idx] : "+\(idx+1)",
+                                   size: buttonSize,
+                                   isActive: currentIndex == idx + 10,
+                                   isDraw: false)
                             .onTapGesture {
                                 if isEditing, let sel = selectedLogIndex, sel < log.count {
                                     let newLabel = "+\(idx+1)"
@@ -337,6 +331,19 @@ struct ContentView: View {
         guard let num = Int(numString), num >= 1, num <= 10 else { return 0 }
         return sign == "-" ? drawFrequencies[num - 1] : blowFrequencies[num - 1]
     }
+
+    // Convert a MIDI note number to frequency in Hz
+    private func midiToFrequency(_ midi: Int) -> Float {
+        440 * pow(2, Float(midi - 69) / 12)
+    }
+
+    // Convert a MIDI note number to a note name (e.g. "C4", "F#3")
+    private func midiToName(_ midi: Int) -> String {
+        let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+        let octave = midi / 12 - 1
+        let name = names[midi % 12]
+        return "\(name)\(octave)"
+    }
     // Virtual clock: track total paused time during editing or playback
     private func updatePauseState() {
         let paused = isPlaying || isEditing
@@ -380,9 +387,11 @@ struct NoteButton: View {
     let label: String
     let size: CGFloat
     let isActive: Bool
+    /// True for draw row (tint red), false for blow row (tint blue)
+    let isDraw: Bool
 
     private var rowTint: Color {
-        label.hasPrefix("-") ? Color.red.opacity(0.1) : Color.blue.opacity(0.1)
+        isDraw ? Color.red.opacity(0.1) : Color.blue.opacity(0.1)
     }
 
     var body: some View {
