@@ -41,7 +41,12 @@ struct SettingsView: View {
                     Button("Close") {
                         isPresented = false
                     }
-                    .buttonStyle(LiquidGlassButtonStyle())
+                    .padding(8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.white)
+                    )
+                    .foregroundColor(.black)
                 }
             }
             .padding()
