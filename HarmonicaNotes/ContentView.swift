@@ -73,8 +73,8 @@ struct ContentView: View {
             }
         }
         // Monitor pause state when editing or playback start/stop
-        .onChange(of: isPlaying) { _ in updatePauseState() }
-        .onChange(of: isEditing) { _ in updatePauseState() }
+        .onChange(of: isPlaying) { updatePauseState() }
+        .onChange(of: isEditing) { updatePauseState() }
 .sheet(isPresented: $showSettings) {
     SettingsView(isPresented: $showSettings,
                  showNotes:    $showNotes,
