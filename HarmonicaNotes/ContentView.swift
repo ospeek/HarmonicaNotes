@@ -34,6 +34,9 @@ struct ContentView: View {
         1567.982, // G6
         2093.005  // C7
     ]
+    // Note names for display when Show Notes setting is enabled
+    let drawNoteNames = ["D4", "G4", "B4", "D5", "F5", "A5", "B5", "D6", "F6", "A6"]
+    let blowNoteNames = ["C4", "E4", "G4", "C5", "E5", "G5", "C6", "E6", "G6", "C7"]
     // Log entry with timestamp for playback
     private struct LogEntry {
         var label: String
@@ -51,6 +54,8 @@ struct ContentView: View {
     @State private var pauseStart: Date? = nil
     @State private var pausedTime: TimeInterval = 0
     @State private var wasPaused: Bool = false
+    @State private var showSettings: Bool = false
+    @State private var showNotes: Bool = false
 
     var body: some View {
         ZStack {
@@ -64,10 +69,29 @@ struct ContentView: View {
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
             }
+            // Settings button at bottom-left
+            VStack {
+                Spacer()
+                HStack {
+                    Button {
+                        showSettings.toggle()
+                    } label: {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 24))
+                            .foregroundColor(.white)
+                    }
+                    .buttonStyle(LiquidGlassButtonStyle())
+                    .padding()
+                    Spacer()
+                }
+            }
         }
         // Monitor pause state when editing or playback start/stop
         .onChange(of: isPlaying) { _ in updatePauseState() }
         .onChange(of: isEditing) { _ in updatePauseState() }
+.sheet(isPresented: $showSettings) {
+    SettingsView(isPresented: $showSettings, showNotes: $showNotes)
+}
     }
 
     @ViewBuilder
@@ -84,7 +108,7 @@ struct ContentView: View {
             VStack(spacing: spacingV) {
                 HStack(spacing: spacingH) {
                     ForEach(0..<10, id: \.self) { idx in
-                        NoteButton(label: "-\(idx+1)", size: buttonSize, isActive: currentIndex == idx)
+                        NoteButton(label: showNotes ? drawNoteNames[idx] : "-\(idx+1)", size: buttonSize, isActive: currentIndex == idx)
                             .onTapGesture {
                                 if isEditing, let sel = selectedLogIndex, sel < log.count {
                                     let newLabel = "-\(idx+1)"
@@ -102,7 +126,7 @@ struct ContentView: View {
                 }
                 HStack(spacing: spacingH) {
                     ForEach(0..<10, id: \.self) { idx in
-                        NoteButton(label: "+\(idx+1)", size: buttonSize, isActive: currentIndex == idx + 10)
+                        NoteButton(label: showNotes ? blowNoteNames[idx] : "+\(idx+1)", size: buttonSize, isActive: currentIndex == idx + 10)
                             .onTapGesture {
                                 if isEditing, let sel = selectedLogIndex, sel < log.count {
                                     let newLabel = "+\(idx+1)"
