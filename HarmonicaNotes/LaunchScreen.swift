@@ -4,11 +4,11 @@ import SwiftUI
 struct LaunchScreen: View {
     var body: some View {
         ZStack {
-            Color.white.ignoresSafeArea()
+            Color.black.ignoresSafeArea()
             Text("Harmonica Notes")
                 .font(.largeTitle)
                 .fontWeight(.bold)
-                .foregroundColor(.black)
+                .foregroundColor(.white)
         }
     }
 }

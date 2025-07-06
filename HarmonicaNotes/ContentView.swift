@@ -42,6 +42,8 @@ struct ContentView: View {
     @State private var wasPaused: Bool = false
     @State private var showSettings: Bool = false
     @State private var showNotes:    Bool = false
+    // Currently highlighted log entry during playback
+    @State private var currentLogPlaybackIndex: Int? = nil
 
     var body: some View {
         ZStack {
@@ -215,23 +217,27 @@ struct ContentView: View {
     private func logSection() -> some View {
         let hPadding: CGFloat = 16
         HStack(alignment: .top) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
-                        ForEach(Array(log.enumerated()), id: \.offset) { idx, entry in
-                            Text(entry.label)
+            ScrollView(.vertical, showsIndicators: false) {
+                let columns = [GridItem(.adaptive(minimum: 32), spacing: 4)]
+                LazyVGrid(columns: columns, spacing: 4) {
+                    ForEach(Array(log.enumerated()), id: \.offset) { idx, entry in
+                        Text(entry.label)
                             .font(.system(size: 16))
-                            .foregroundColor(isEditing ? (selectedLogIndex == idx ? .yellow : .white) : .white)
+                            .foregroundColor(isEditing && selectedLogIndex == idx ? .yellow : .white)
                             .padding(4)
-                            .background(isEditing && selectedLogIndex == idx ? Color.white.opacity(0.3) : Color.clear)
+                            .background(
+                                isEditing && selectedLogIndex == idx
+                                    ? Color.white.opacity(0.3)
+                                    : (isPlaying && currentLogPlaybackIndex == idx
+                                        ? Color.gray.opacity(0.6)
+                                        : Color.clear)
+                            )
                             .cornerRadius(4)
                             .onTapGesture {
                                 if isEditing {
                                     selectedLogIndex = idx
                                 } else {
-                                    // Stop recording and play sequence starting from this log entry
-                                    if isRecording {
-                                        isRecording = false
-                                    }
+                                    if isRecording { isRecording = false }
                                     playTask?.cancel()
                                     isPlaying = true
                                     let startIndex = idx
@@ -244,7 +250,7 @@ struct ContentView: View {
                     }
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: 48)
+            .frame(maxWidth: .infinity)
             VStack(spacing: 8) {
                 // Edit toggle
                 Button {
@@ -358,16 +364,26 @@ struct ContentView: View {
         wasPaused = paused
     }
 
-    // Playback the recorded log with original timing
+    // Playback the recorded log with original timing, highlighting notes as they play
+    @MainActor
     private func playSequence(from startIndex: Int = 0) async {
         guard startIndex < log.count else { return }
+        // Clear previous playback highlight
+        currentLogPlaybackIndex = nil
         // Sequential playback using recorded durations, starting at startIndex
         var prevTime = log[startIndex].timestamp
-        for entry in log[startIndex...] {
+        for idx in startIndex..<log.count {
+            let entry = log[idx]
             let start = entry.timestamp
             let delay = start.timeIntervalSince(prevTime)
             if delay > 0 {
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            }
+            // Highlight the log entry and grid note
+            currentLogPlaybackIndex = idx
+            if let sign = entry.label.first, let num = Int(entry.label.dropFirst()) {
+                let gridIdx = (sign == "-" ? num - 1 : num - 1 + 10)
+                currentIndex = gridIdx
             }
             let freq = frequency(for: entry.label)
             SynthEngine.shared.noteOn(frequency: freq)
@@ -376,6 +392,9 @@ struct ContentView: View {
                 try? await Task.sleep(nanoseconds: UInt64(dur * 1_000_000_000))
             }
             SynthEngine.shared.noteOff()
+            // Clear highlights and advance
+            currentIndex = nil
+            currentLogPlaybackIndex = nil
             prevTime = start.addingTimeInterval(dur)
         }
     }
@@ -401,7 +420,7 @@ struct NoteButton: View {
             .frame(width: size, height: size)
             .background(
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(rowTint)
+                    .fill(isActive ? Color.gray.opacity(0.6) : rowTint)
             )
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
             .overlay(
